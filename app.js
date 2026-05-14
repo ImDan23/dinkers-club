@@ -9,6 +9,7 @@ window.selectCourt = selectCourt;
 window.nextStep = nextStep;
 window.prevStep = prevStep;
 window.confirmBooking = confirmBooking;
+window.updateBookingDate = updateBookingDate;
 
 // Booking State Management
 let bookingData = {
@@ -16,8 +17,9 @@ let bookingData = {
     courtName: null,
     time: null,
     date: new Date().toISOString().split('T')[0], // YYYY-MM-DD for Supabase
-    dateDisplay: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 };
+
+let unavailableSlots = [];
 
 // Initialize time slots with 1-hour duration and 10-minute buffer
 const timeSlots = [
@@ -35,7 +37,32 @@ const timeSlots = [
     "08:50 PM - 09:50 PM"
 ];
 
-const disabledSlots = ["10:20 AM - 11:20 AM", "01:50 PM - 02:50 PM"]; // Updated mock disabled slots
+async function fetchAvailability() {
+    if (!bookingData.courtId || !bookingData.date) return;
+    
+    try {
+        const { data, error } = await supabase
+            .from('bookings')
+            .select('time_slot')
+            .eq('court_id', bookingData.courtId)
+            .eq('booking_date', bookingData.date)
+            .eq('status', 'confirmed');
+
+        if (error) throw error;
+        
+        unavailableSlots = data.map(b => b.time_slot);
+        renderTimeSlots();
+    } catch (error) {
+        console.error('Error fetching availability:', error);
+    }
+}
+
+function updateBookingDate(newDate) {
+    bookingData.date = newDate;
+    bookingData.time = null; // Reset time on date change
+    document.getElementById('btn-to-step3').disabled = true;
+    fetchAvailability();
+}
 
 function selectCourt(courtId, courtName, element) {
     // UI Update
@@ -58,12 +85,13 @@ function renderTimeSlots() {
     
     timeSlots.forEach(slot => {
         const div = document.createElement('div');
-        div.className = `time-slot ${disabledSlots.includes(slot) ? 'disabled' : ''}`;
+        const isBooked = unavailableSlots.includes(slot);
+        div.className = `time-slot ${isBooked ? 'disabled' : ''}`;
         if (bookingData.time === slot) div.classList.add('selected');
         
         div.innerText = slot;
         
-        if (!disabledSlots.includes(slot)) {
+        if (!isBooked) {
             div.onclick = () => selectTime(slot, div);
         }
         
@@ -93,7 +121,12 @@ function nextStep(step) {
     document.getElementById(`step${step}-card`).classList.add('active');
     
     if (step === 2) {
-        renderTimeSlots();
+        // Set min date to today
+        const dateInput = document.getElementById('booking-date-input');
+        dateInput.value = bookingData.date;
+        dateInput.min = new Date().toISOString().split('T')[0];
+        
+        fetchAvailability();
     }
     
     if (step === 3) {
@@ -160,5 +193,5 @@ async function confirmBooking(event) {
 
 // Initial display setup
 document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('selected-date-display').innerText = `Today, ${bookingData.dateDisplay}`;
+    // Initial setup if needed
 });
